@@ -28,7 +28,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type User = {
-  displayName: string;
   email: string;
 } | null;
 
@@ -94,6 +93,15 @@ export default function TodoApp({
   useEffect(() => {
     if (!user) return;
     void loadTasks();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadTasks();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [user]);
 
   const stats = useMemo(() => {
@@ -233,9 +241,6 @@ export default function TodoApp({
           </div>
           {user ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="rounded-md border border-slate-200 bg-white/75 px-3 py-2 text-slate-700">
-                {user.displayName}
-              </span>
               <Button variant="outline" asChild>
                 <a href={signOutPath} target="_top">Sign out</a>
               </Button>

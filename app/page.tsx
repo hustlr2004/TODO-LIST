@@ -12,7 +12,7 @@ export default async function Home() {
 
   return (
     <TodoApp
-      user={user ? { displayName: user.displayName, email: user.email } : null}
+      user={user ? { email: user.email } : null}
       signInPath={chatGPTSignInPath("/")}
       signOutPath={chatGPTSignOutPath("/")}
     />
