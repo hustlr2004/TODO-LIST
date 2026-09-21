@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `next_created` integer DEFAULT false NOT NULL;

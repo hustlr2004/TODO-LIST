@@ -1,4 +1,4 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -29,6 +29,9 @@ export const tasks = sqliteTable(
     recurrence: text("recurrence", { enum: ["none", "daily", "weekly"] })
       .notNull()
       .default("none"),
+    nextCreated: integer("next_created", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     completedAt: text("completed_at"),

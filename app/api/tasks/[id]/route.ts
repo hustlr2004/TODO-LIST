@@ -16,6 +16,7 @@ type TaskRow = {
   status: Status;
   reminder_at: string | null;
   recurrence: Recurrence;
+  next_created: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -43,8 +44,18 @@ export async function PATCH(
 
   const now = new Date().toISOString();
   const completedAt = task.status === "completed" ? now : null;
+  const createsNext =
+    task.status === "completed" &&
+    task.dueDate !== null &&
+    task.recurrence !== "none";
+  const intervalDays = task.recurrence === "weekly" ? 7 : 1;
+  const nextDueDate = createsNext ? addDays(task.dueDate!, intervalDays) : null;
+  const nextReminderAt =
+    createsNext && task.reminderAt
+      ? addDaysToDateTime(task.reminderAt, intervalDays)
+      : null;
 
-  const result = await env.DB.prepare(
+  const updateStatement = env.DB.prepare(
     `UPDATE tasks SET
       title = ?,
       description = ?,
@@ -54,6 +65,10 @@ export async function PATCH(
       status = ?,
       reminder_at = ?,
       recurrence = ?,
+      next_created = CASE
+        WHEN status = 'pending' AND next_created = 0 AND ? = 1 THEN 1
+        ELSE next_created
+      END,
       updated_at = ?,
       completed_at = ?
      WHERE id = ? AND user_id = ?`,
@@ -67,22 +82,66 @@ export async function PATCH(
       task.status,
       task.reminderAt,
       task.recurrence,
+      createsNext ? 1 : 0,
       now,
       completedAt,
       id,
       user.userId,
-    )
-    .run();
+    );
 
-  if (!result.meta.changes) {
+  let updateResult: D1Result;
+  let nextTaskId: string | null = null;
+  if (createsNext) {
+    const nextId = crypto.randomUUID();
+    const insertNextStatement = env.DB.prepare(
+      `INSERT INTO tasks (
+        id, user_id, title, description, due_date, priority, category, status,
+        reminder_at, recurrence, next_created, created_at, updated_at, completed_at
+      )
+      SELECT ?, user_id, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, ?, NULL
+      FROM tasks
+      WHERE id = ? AND user_id = ? AND status = 'pending' AND next_created = 0`,
+    ).bind(
+      nextId,
+      task.title,
+      task.description,
+      nextDueDate,
+      task.priority,
+      task.category,
+      nextReminderAt,
+      task.recurrence,
+      now,
+      now,
+      id,
+      user.userId,
+    );
+    const [inserted, updated] = await env.DB.batch([
+      insertNextStatement,
+      updateStatement,
+    ]);
+    updateResult = updated;
+    nextTaskId = inserted.meta.changes ? nextId : null;
+  } else {
+    updateResult = await updateStatement.run();
+  }
+
+  if (!updateResult.meta.changes) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
 
   const row = await env.DB.prepare("SELECT * FROM tasks WHERE id = ? AND user_id = ?")
     .bind(id, user.userId)
     .first<TaskRow>();
+  const nextRow = nextTaskId
+    ? await env.DB.prepare("SELECT * FROM tasks WHERE id = ? AND user_id = ?")
+        .bind(nextTaskId, user.userId)
+        .first<TaskRow>()
+    : null;
 
-  return NextResponse.json({ task: row ? fromRow(row) : null });
+  return NextResponse.json({
+    task: row ? fromRow(row) : null,
+    nextTask: nextRow ? fromRow(nextRow) : null,
+  });
 }
 
 export async function DELETE(
@@ -141,6 +200,18 @@ function asNullableDate(value: unknown) {
 function asNullableDateTime(value: unknown) {
   if (typeof value !== "string" || !value) return null;
   return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysToDateTime(value: string, days: number) {
+  const date = new Date(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
 }
 
 function fromRow(row: TaskRow) {
